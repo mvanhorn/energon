@@ -12,6 +12,16 @@ function workflowFiles() {
     .map((name) => ({ name, body: readFileSync(join(workflowsDir, name), "utf8") }));
 }
 
+function walkFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const next = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(next));
+    else if (entry.isFile()) out.push(next);
+  }
+  return out;
+}
+
 describe("contribution policy", () => {
   it("does not auto-close fork pull requests", () => {
     expect(existsSync(join(workflowsDir, "decline-fork-prs.yml"))).toBe(false);
@@ -83,6 +93,44 @@ describe("contribution policy", () => {
     expect(agents).toContain("Add extra `##` sections when they help a reviewer");
     expect(agents).toContain("When you triage a PR, run **How to test** as written");
     expect(agents).toContain("Conventional Commit");
+    expect(agents).toContain(".agents/skills/cut-release/SKILL.md");
+    expect(agents).toContain("Only `verify-energon` and `cut-release` belong there");
+    expect(agents).toContain("Do not put the **publish** skill");
+  });
+
+  it("keeps release-please on canonical main and does not deploy", () => {
+    const workflow = readFileSync(join(workflowsDir, "release-please.yml"), "utf8");
+    expect(workflow).toMatch(/^on:\n  push:\n    branches: \[main\]$/m);
+    expect(workflow).toContain('github.repository == \'tmchow/energon\'');
+    expect(workflow).toContain("googleapis/release-please-action@");
+    expect(workflow).not.toMatch(/^[ \t]*pull_request[ \t]*:/m);
+    expect(/^[ \t]*pull_request_target[ \t]*:/m.test(workflow)).toBe(false);
+    expect(workflow).not.toContain("wrangler deploy");
+    const ci = readFileSync(join(workflowsDir, "ci.yml"), "utf8");
+    expect(ci).toMatch(/^permissions:\n  contents: read$/m);
+    const config = readFileSync(join(root, "release-please-config.json"), "utf8");
+    expect(config).toContain('"release-type": "simple"');
+    expect(config).toContain('"type": "docs"');
+    expect(config).toContain('"type": "ci"');
+    expect(config).toContain('"type": "chore"');
+    expect(config).toMatch(/"type": "docs",\s*"hidden": true/);
+    expect(config).toMatch(/"type": "ci",\s*"hidden": true/);
+    expect(config).toMatch(/"type": "chore",\s*"hidden": true/);
+    expect(readFileSync(join(root, "CONTRIBUTING.md"), "utf8")).toContain("## Releases");
+    const skill = readFileSync(join(root, ".agents/skills/cut-release/SKILL.md"), "utf8");
+    expect(skill).toContain("gh repo view --json isFork,nameWithOwner,url");
+    expect(skill).toContain("gh pr list --label \"autorelease: pending\"");
+  });
+
+  it("does not hard-code tmchow/energon in shipped skills", () => {
+    const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
+    expect(agents).toMatch(
+      /Skills under `\.agents\/skills\/` ship on every fork[\s\S]*Do not write `tmchow\/energon`/,
+    );
+    expect(agents).toContain("Do not put `tmchow/energon` in these files.");
+    for (const file of walkFiles(join(root, ".agents/skills"))) {
+      expect(readFileSync(file, "utf8").includes("tmchow/energon"), file).toBe(false);
+    }
   });
 
   it("lints PR titles as conventional commits without pull_request_target", () => {
