@@ -154,6 +154,8 @@ Supported hooks are wrangler vars (`FOOTER_TEXT`, TTL, email domains, `WRITE_POL
 
 ## Cloudflare Access
 
+For a repeatable CLI/API setup with an existing provider, follow [Set up Access from the terminal](ACCESS-SETUP.md).
+
 The Worker verifies the signed `Cf-Access-Jwt-Assertion` from a hostname-based Access application. It does not implement signup.
 
 After creating the hub application, set these non-secret values under `[vars]` in `wrangler.toml`:
