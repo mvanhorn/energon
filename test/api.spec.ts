@@ -1117,6 +1117,8 @@ describe("Energon", () => {
     expect(html).toContain("<h1>Hello</h1>");
     expect(html).toContain('class="mermaid"');
     expect(html).toContain("/static/mermaid/mermaid.esm.min.mjs");
+    expect(html).toContain("/static/md-expand.mjs");
+    expect(html).toContain("mountMarkdownExpand");
     expect(html).toContain('securityLevel: "strict"');
     expect(html).not.toContain("jsdelivr");
     expect(html).not.toContain("cdn.jsdelivr");
@@ -1127,12 +1129,32 @@ describe("Energon", () => {
     expect(html).not.toContain("http://example.com/a.png");
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).not.toContain("javascript:alert");
-    expect(html).toContain("?raw=1");
+    expect(html).toContain('class="en-md"');
+    expect(html).toMatch(/prefers-color-scheme:\s*light/);
+    expect(html).not.toContain("?raw=1");
+    expect(html).not.toContain(">Raw<");
+    expect(html).not.toMatch(/<a[^>]*class="en-brand"/);
+    expect(html).not.toContain('class="en-card');
 
     const home = await req(`/ada/s/${site_docs.id}/docs/`, { headers: { accept: "text/html" } });
     const homeHtml = await home.text();
     expect(homeHtml).toContain("<h1>Docs home</h1>");
     expect(homeHtml).not.toContain("/static/mermaid/");
+    expect(homeHtml).not.toContain("/static/md-expand.mjs");
+    expect(homeHtml).not.toContain('<script type="module"');
+
+    await json(`/v1/sites/${site_docs.id}/files/grid.md`, {
+      method: "PUT",
+      headers: auth(token),
+      body: ["| A | B | C | D | E | F | G | H |", "| --- | --- | --- | --- | --- | --- | --- | --- |", "| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |"].join("\n"),
+    });
+    const grid = await req(`/ada/s/${site_docs.id}/docs/grid.md`, { headers: { accept: "text/html" } });
+    const gridHtml = await grid.text();
+    expect(gridHtml).toContain("<table>");
+    expect(gridHtml).toContain("/static/md-expand.mjs");
+    expect(gridHtml).toContain("mountMarkdownExpand");
+    expect(gridHtml).not.toContain("/static/mermaid/");
+    expect(grid.headers.get("content-security-policy")).toContain("script-src http://127.0.0.1");
 
     await json(`/v1/sites/${site_docs.id}/files/index.html`, {
       method: "PUT",

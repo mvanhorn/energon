@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { formatBytes, formatCount } from "../../src/config";
 import {
@@ -12,6 +13,7 @@ import {
   isPublicContentPath,
   mermaidDocumentCsp,
   MERMAID_SCRIPT_PATH,
+  MD_EXPAND_SCRIPT_PATH,
   isWorkersDev,
   normalizeRelPath,
   releaseStorage,
@@ -94,9 +96,14 @@ describe("path and download helpers", () => {
     expect(csp).not.toContain("allow-same-origin");
     expect(csp).toContain("script-src https://energon.example.com 'unsafe-inline'");
     expect(isMermaidAssetPath(MERMAID_SCRIPT_PATH)).toBe(true);
+    expect(isMermaidAssetPath(MD_EXPAND_SCRIPT_PATH)).toBe(true);
+    expect(isMermaidAssetPath("/static/md-mermaid.mjs")).toBe(false);
     expect(isMermaidAssetPath("/static/mermaid/chunks/mermaid.esm.min/chunk-abc.mjs")).toBe(true);
     expect(isMermaidAssetPath("/static/logo.svg")).toBe(false);
     expect(isMermaidAssetPath("/ada/s/docs/notes.md")).toBe(false);
+    const wrangler = readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8");
+    expect(wrangler).toContain('"/static/mermaid/*"');
+    expect(wrangler).toContain('"/static/md-expand.mjs"');
   });
 
   it("requires Origin on account mutations, not on GET", () => {

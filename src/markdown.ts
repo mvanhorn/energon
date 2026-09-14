@@ -4,7 +4,7 @@ import xss, { type IWhiteList, type SafeAttrValueHandler } from "xss";
 import { privateCacheControl } from "./cache";
 import { escapeHtml } from "./chrome";
 import { PRODUCT } from "./config";
-import { applyIsolation, basename, contentDisposition, mermaidDocumentCsp, MERMAID_SCRIPT_PATH, wantsDownload } from "./http";
+import { applyIsolation, basename, contentDisposition, mermaidDocumentCsp, MD_EXPAND_SCRIPT_PATH, MERMAID_SCRIPT_PATH, wantsDownload } from "./http";
 
 const MERMAID_FENCE = /^(```|~~~)[ \t]*mermaid\b/im;
 
@@ -52,7 +52,7 @@ whiteList.td = ["align"];
 whiteList.details = [];
 whiteList.summary = [];
 
-export function renderMarkdown(md: string): { html: string; mermaid: boolean } {
+export function renderMarkdown(md: string): { html: string; mermaid: boolean; tables: boolean } {
   const dirty = marked.parse(md, { async: false }) as string;
   const html = xss(dirty, {
     whiteList,
@@ -70,19 +70,16 @@ export function renderMarkdown(md: string): { html: string; mermaid: boolean } {
       return xssRuntime.safeAttrValue(tag, name, value, cssFilter);
     },
   });
-  return { html, mermaid: MERMAID_FENCE.test(md) || html.includes('class="mermaid"') };
+  return {
+    html,
+    mermaid: MERMAID_FENCE.test(md) || html.includes('class="mermaid"'),
+    tables: /<table\b/i.test(html),
+  };
 }
 
-export function markdownPage(opts: {
-  title: string;
-  filename: string;
-  rawHref: string;
-  size?: number;
-  updatedAt?: string;
-  html: string;
-  mermaid: boolean;
-}): string {
-  return uiPage(`${opts.title} — ${PRODUCT}`, { page: "markdown", data: opts }, opts.mermaid ? mermaidHead() : "");
+export function markdownPage(opts: { title: string; html: string; mermaid: boolean; tables?: boolean }): string {
+  const extraHead = opts.mermaid ? mermaidRuntimeHead() : opts.tables ? expandHead() : "";
+  return uiPage(`${opts.title} — ${PRODUCT}`, { page: "markdown", data: { html: opts.html } }, extraHead);
 }
 
 export async function respondMarkdown(
@@ -103,7 +100,6 @@ export async function respondMarkdown(
     return new Response(obj.body, { headers });
   }
   const rendered = renderMarkdown(await obj.text());
-  const rawHref = `${new URL(request.url).pathname}?raw=1`;
   const headers = new Headers({
     "content-type": "text/html; charset=utf-8",
     "x-content-type-options": "nosniff",
@@ -111,39 +107,69 @@ export async function respondMarkdown(
     vary: "Accept",
   });
   applyIsolation(headers, "text/html");
-  if (rendered.mermaid) headers.set("content-security-policy", mermaidDocumentCsp(new URL(request.url).origin));
+  if (rendered.mermaid || rendered.tables) headers.set("content-security-policy", mermaidDocumentCsp(new URL(request.url).origin));
   return new Response(
-    markdownPage({
-      title: filename,
-      filename,
-      rawHref,
-      size: obj.size,
-      updatedAt: obj.uploaded.toISOString(),
-      html: rendered.html,
-      mermaid: rendered.mermaid,
-    }),
+    markdownPage({ title: filename, html: rendered.html, mermaid: rendered.mermaid, tables: rendered.tables }),
     { headers },
   );
 }
 
-function mermaidHead(): string {
+// Run mermaid before loading expand. A failed expand import must not leave
+// fences as source. Mount after run so every SVG is wrapped, not only the first.
+function mermaidRuntimeHead(): string {
   return `<script type="module">
 import mermaid from "${MERMAID_SCRIPT_PATH}";
+const light = matchMedia("(prefers-color-scheme: light)").matches;
+const fit = { useMaxWidth: false };
 mermaid.initialize({
-  startOnLoad: true,
-  theme: "dark",
+  startOnLoad: false,
+  theme: light ? "neutral" : "dark",
   securityLevel: "strict",
+  flowchart: fit,
+  sequence: fit,
+  gantt: fit,
+  class: fit,
+  er: fit,
+  state: fit,
+  gitGraph: fit,
+  journey: fit,
+  timeline: fit,
+  mindmap: fit,
+  c4: fit,
+  pie: fit,
+  quadrantChart: fit,
+  sankey: fit,
+  requirement: fit,
+  block: fit,
+  architecture: fit,
+  kanban: fit,
+  packet: fit,
+  radar: fit,
+  treemap: fit,
+  xyChart: fit,
   themeVariables: {
-    darkMode: true,
-    background: "#070814",
-    primaryColor: "#16102a",
-    primaryTextColor: "#ece8f8",
-    primaryBorderColor: "#8a6cff",
-    lineColor: "#9a93b3",
-    secondaryColor: "#0d1220",
-    tertiaryColor: "#10162a",
+    background: light ? "#f6f4fb" : "#070814",
+    scaleLabelColor: light ? "#14111f" : "#ece8f8",
   },
 });
+try {
+  await mermaid.run({ querySelector: ".en-md pre.mermaid" });
+} catch {
+  /* keep whatever SVG mermaid drew */
+}
+try {
+  const { mountMarkdownExpand } = await import("${MD_EXPAND_SCRIPT_PATH}");
+  mountMarkdownExpand();
+} catch {
+  /* diagrams stay as inline SVG without the overlay */
+}
+</script>`;
+}
+
+function expandHead(): string {
+  return `<script type="module">
+import { mountMarkdownExpand } from "${MD_EXPAND_SCRIPT_PATH}";
+mountMarkdownExpand();
 </script>`;
 }
 
