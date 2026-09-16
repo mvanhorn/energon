@@ -38,6 +38,14 @@ describe('hubCleanupTarget', () => {
       min_size: '15b',
     });
     expect(hubCleanupTarget({ matching: true }, { ...find, expires: 'never' })).not.toHaveProperty('last_read_before');
+    expect(hubCleanupTarget({ matching: true }, { ...find, expires: '24h' })).toEqual({
+      q: 'vhubclean',
+      expires_within: '24h',
+    });
+    expect(hubCleanupTarget({ matching: true }, { ...find, expires: '7d' })).toEqual({
+      q: 'vhubclean',
+      expires_within: '7d',
+    });
     expect(hubCleanupTarget({ matching: true }, { ...find, kind: 'files' })).toEqual({ q: 'vhubclean', kind: 'files' });
   });
 });
