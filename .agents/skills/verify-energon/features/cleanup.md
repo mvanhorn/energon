@@ -5,7 +5,7 @@ Cleanup lets a user find their own stale work with list filters (`expires=never`
 ## Sub-features
 
 - `list-filters` narrows `GET /v1/sites` and `GET /v1/files` by `expires`, `expires_before`, `updated_before`, and `min_size`; a malformed value is ignored, not a `400`.
-- `list-sorts` orders by `sort=size` (largest first) and `sort=age` (least recently written first); `total` matches the filtered set.
+- `list-sorts` orders by `sort=size` (largest first), `sort=age` (least recently written first), and `sort=last_read` (never-read first); `total` matches the filtered set.
 - `cleanup-preview` returns `executed: false` with `matched`, `eligible`, `bytes`, `skipped.by_reason`, `sample`, and a 32-hex `confirm`; nothing changes.
 - `cleanup-execute` with that `confirm` returns `executed: true` with `applied`, `skipped`, and `failed` per object.
 - `cleanup-drift` rejects a stale or foreign `confirm` with `409 cleanup_drift` and a fresh preview in the body.

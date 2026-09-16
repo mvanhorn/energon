@@ -300,6 +300,9 @@
             "$ref": "#/components/parameters/Sort"
           },
           {
+            "$ref": "#/components/parameters/ChangedSinceRead"
+          },
+          {
             "$ref": "#/components/parameters/Limit"
           },
           {
@@ -502,6 +505,9 @@
           },
           {
             "$ref": "#/components/parameters/Sort"
+          },
+          {
+            "$ref": "#/components/parameters/ChangedSinceRead"
           },
           {
             "$ref": "#/components/parameters/Limit"
@@ -5302,11 +5308,23 @@
             "updated",
             "name",
             "size",
-            "age"
+            "age",
+            "last_read"
           ],
           "default": "updated"
         },
-        "description": "updated: newest first. name: slug or filename ascending. size: largest first (sites by the sum of their file sizes). age: least recently written first. Anything else means updated."
+        "description": "updated: newest first. name: slug or filename ascending. size: largest first (sites by the sum of their file sizes). age: least recently written first. last_read: never-read first, then oldest last_read_at. NULL last_read_at sorts before any stamp. Anything else means updated."
+      },
+      "ChangedSinceRead": {
+        "name": "changed_since_read",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "1"
+          ]
+        },
+        "description": "1: only objects whose updated_at is after last_read_at. Never-read objects are included (last_read_at treated as 1970-01-01T00:00:00.000Z). Any other value is ignored. last_read_at is a floor (hourly throttle plus at most about a day of edge-cache lag). List filter only; not a cleanup target."
       },
       "Limit": {
         "name": "limit",

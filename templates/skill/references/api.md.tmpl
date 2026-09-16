@@ -79,7 +79,8 @@ Guest write on the public URL uses header `X-Energon-Write-Password` (not a `/v1
 ?expires=never                   no expiry set        (or ?expires_before=<iso>)
 ?updated_before=<iso>            last written before
 ?min_size=<bytes|500kb|5mb|1gb>  sites use the sum of their files
-?sort=updated|name|size|age      default updated (newest); size largest first; age least recently written first
+?sort=updated|name|size|age|last_read  default updated (newest); size largest first; age least recently written first; last_read never-read / oldest stamp first
+?changed_since_read=1            updated after last_read_at; never-read counts as changed. List only; not a cleanup target
 ?limit=25&cursor=                keyset pages; total counts every page
 ```
 
@@ -91,7 +92,7 @@ A malformed filter is ignored in the URL form, never a 400.
 POST /v1/cleanup   { "target": …, "action": "delete"|"set_ttl"|"expire", "ttl"?: string, "confirm"?: string }
 ```
 
-`target` is explicit ids `{ "sites": ["id"], "files": ["id"] }` **or** the filters above as JSON fields plus optional `"kind": "sites"|"files"` (`{}` = everything you are involved in). Mixing ids and filters is `400 bad_target`; a malformed filter value is `400 bad_query`.
+`target` is explicit ids `{ "sites": ["id"], "files": ["id"] }` **or** the filters above as JSON fields plus optional `"kind": "sites"|"files"` (`{}` = everything you are involved in). Mixing ids and filters is `400 bad_target`; a malformed filter value is `400 bad_query`. `changed_since_read` is list-only: sending it on cleanup is `400 bad_target`.
 
 Without `confirm` the call is a **dry run**: `200 { action, executed: false, matched, eligible, bytes, skipped: { total, by_reason, sample }, sample, confirm }`. Nothing changes. Resend the identical body with that `confirm` to execute: `200 { action, executed: true, applied: { total, bytes, objects }, skipped, failed: { total, objects } }`. `set_ttl` needs `ttl` (same rules as PATCH). `expire` sets a 30m grace and skips objects already expiring sooner (`already_expiring`). Objects you cannot write are `skipped` with `not_writable`, never a batch 403. Cap is 100 eligible objects per call (`413 cleanup_too_many` with `matched`, `eligible`, `skipped`, `bytes`, `limit`). A stale `confirm` is `409 cleanup_drift` with a fresh preview in the body. No recycle bin.
 
