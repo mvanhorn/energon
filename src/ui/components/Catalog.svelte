@@ -36,9 +36,10 @@
   </span>
 {/snippet}
 {#snippet updated(item: CatalogItem)}<Timestamp value={item.updated_at || item.created_at} />{/snippet}
+{#snippet lastRead(item: CatalogItem)}<Timestamp value={item.last_read_at} empty="None" />{/snippet}
 {#snippet expires(item: CatalogItem)}{#if item.expires_at}<Timestamp value={item.expires_at} />{/if}{/snippet}
 {#snippet itemSize(item: CatalogItem)}{size(item)}{/snippet}
-{#snippet meta(item: CatalogItem)}<Timestamp value={item.updated_at || item.created_at} /> · {size(item)}{#if item.expires_at}{' · Expires '}<Timestamp value={item.expires_at} />{/if}{/snippet}
+{#snippet meta(item: CatalogItem)}<Timestamp value={item.updated_at || item.created_at} /> · {size(item)}{#if item.expires_at}{' · Expires '}<Timestamp value={item.expires_at} />{/if}{' · Last read '}<Timestamp value={item.last_read_at} empty="None" />{/snippet}
 {#snippet actions(item: CatalogItem)}
   <div class="en-row-actions">
     <div class="en-scan-pair">
@@ -61,6 +62,6 @@
   {#if cursor}<Button id="catalog-load-more" variant="ghost" size="sm" disabled={busy} onclick={onLoadMore}>{busy ? 'Loading…' : 'Load more'}</Button>{/if}
 {/snippet}
 {#if items.length}<Table rows={items} rowKey={item => `${item.kind}:${item.id}`} rowClassName={(item) => selected(item) ? 'row-selected' : ''} pager={pager}
-  columns={[{ header: 'Name', cell: itemName, className: 'name' }, { header: 'Updated', cell: updated, className: 'when' }, { header: 'Expires', cell: expires, className: 'when' }, { header: 'Size', cell: itemSize, className: 'num' }, { cell: meta, className: 'meta' }, { cell: actions, className: 'actions' }]} />
+  columns={[{ header: 'Name', cell: itemName, className: 'name' }, { header: 'Updated', cell: updated, className: 'when' }, { header: 'Last read', cell: lastRead, className: 'when' }, { header: 'Expires', cell: expires, className: 'when' }, { header: 'Size', cell: itemSize, className: 'num' }, { cell: meta, className: 'meta' }, { cell: actions, className: 'actions' }]} />
 {:else if filtered}<EmptyState title="No matching {noun}">Widen the search or filters.</EmptyState>
 {:else}<EmptyState title="Nothing published yet">Upload a document, publish a prepared folder, or ask your agent to publish for you.</EmptyState>{/if}

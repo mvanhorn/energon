@@ -1,8 +1,15 @@
 import { parseByteSize } from "./policy";
 
 export type ListScope = "involved" | "created" | "edited";
-export type CatalogSort = "updated" | "name" | "size" | "age";
+export type CatalogSort = "updated" | "name" | "size" | "age" | "last_read";
 export type CatalogKind = "sites" | "files";
+
+/** Sentinel used when last_read_at is NULL so never-read sorts and pages before any stamp. */
+export const NEVER_READ_AT = "1970-01-01T00:00:00.000Z";
+
+function lastReadExpr(col: string): string {
+  return `COALESCE(${col}, '${NEVER_READ_AT}')`;
+}
 
 export const DEFAULT_LIST_LIMIT = 25;
 export const MAX_LIST_LIMIT = 50;
@@ -18,6 +25,8 @@ export type SelectionCriteria = {
   minSize?: number;
   owner?: string;
   lastReadBefore?: string;
+  /** Personal catalog only: updated_at after last_read_at. Never-read counts as changed. */
+  changedSinceRead?: boolean;
 };
 
 export type ListPresentation = {
@@ -134,6 +143,7 @@ export function parseSort(raw: string | null | undefined): CatalogSort {
     case "name":
     case "size":
     case "age":
+    case "last_read":
       return raw;
     default:
       return "updated";
@@ -156,6 +166,7 @@ export function parseListQuery(url: URL): ListQuery {
   const limit = Number.isFinite(parsedLimit)
     ? Math.min(MAX_LIST_LIMIT, Math.max(1, Math.round(parsedLimit)))
     : DEFAULT_LIST_LIMIT;
+  const changedSinceRead = url.searchParams.get("changed_since_read") === "1";
   return {
     ...criteria,
     sort: parseSort(url.searchParams.get("sort")),
@@ -164,6 +175,7 @@ export function parseListQuery(url: URL): ListQuery {
     sitesCursor: url.searchParams.get("sites_cursor"),
     filesCursor: url.searchParams.get("files_cursor"),
     kind: parseKind(url.searchParams.get("kind")),
+    ...(changedSinceRead ? { changedSinceRead: true } : {}),
   };
 }
 
@@ -182,6 +194,7 @@ export function catalogSearchParams(input: {
   expires?: ExpiresFilter;
   updatedBefore?: string;
   lastReadBefore?: string;
+  changedSinceRead?: boolean;
   minSize?: string;
   kind?: CatalogKind;
   cursor?: string | null;
@@ -191,6 +204,7 @@ export function catalogSearchParams(input: {
   else if (input.expires?.kind === "before") params.set("expires_before", input.expires.at);
   if (input.updatedBefore) params.set("updated_before", input.updatedBefore);
   if (input.lastReadBefore) params.set("last_read_before", input.lastReadBefore);
+  if (input.changedSinceRead) params.set("changed_since_read", "1");
   if (input.minSize) params.set("min_size", input.minSize);
   if (input.kind) params.set("kind", input.kind);
   if (input.cursor) params.set("cursor", input.cursor);
@@ -341,6 +355,9 @@ export function criteriaSql(
     where.push(`(${cols.lastRead} IS NULL OR ${cols.lastRead} < ?)`);
     whereBinds.push(criteria.lastReadBefore);
   }
+  if (criteria.changedSinceRead) {
+    where.push(`${cols.updated} > ${lastReadExpr(cols.lastRead)}`);
+  }
   if (criteria.minSize !== undefined) {
     const clause = cols.sizeClause === "having" ? having : where;
     const binds = cols.sizeClause === "having" ? havingBinds : whereBinds;
@@ -372,8 +389,8 @@ type SortSpec<Row> = {
   values: (row: Row) => string[];
 };
 
-export type SiteCursorRow = { id: string; slug: string; handle: string; updated_at: string; size: number };
-export type FileCursorRow = { id: string; filename: string; updated_at: string | null; created_at: string; size: number };
+export type SiteCursorRow = { id: string; slug: string; handle: string; updated_at: string; size: number; last_read_at?: string | null };
+export type FileCursorRow = { id: string; filename: string; updated_at: string | null; created_at: string; size: number; last_read_at?: string | null };
 
 function siteSort(sort: CatalogSort): SortSpec<SiteCursorRow> {
   switch (sort) {
@@ -385,6 +402,14 @@ function siteSort(sort: CatalogSort): SortSpec<SiteCursorRow> {
       return { exprs: [SITE_SIZE_SQL, "s.id"], dir: "DESC", clause: "having", lead: "number", values: (r) => [String(r.size), r.id] };
     case "age":
       return { exprs: ["s.updated_at", "s.id"], dir: "ASC", clause: "where", lead: "text", values: (r) => [r.updated_at, r.id] };
+    case "last_read":
+      return {
+        exprs: [lastReadExpr("s.last_read_at"), "s.id"],
+        dir: "ASC",
+        clause: "where",
+        lead: "text",
+        values: (r) => [r.last_read_at ?? NEVER_READ_AT, r.id],
+      };
     default:
       return assertNever(sort);
   }
@@ -400,6 +425,14 @@ function fileSort(sort: CatalogSort): SortSpec<FileCursorRow> {
       return { exprs: ["size", "id"], dir: "DESC", clause: "where", lead: "number", values: (r) => [String(r.size), r.id] };
     case "age":
       return { exprs: [FILE_UPDATED_SQL, "id"], dir: "ASC", clause: "where", lead: "text", values: (r) => [r.updated_at || r.created_at, r.id] };
+    case "last_read":
+      return {
+        exprs: [lastReadExpr("last_read_at"), "id"],
+        dir: "ASC",
+        clause: "where",
+        lead: "text",
+        values: (r) => [r.last_read_at ?? NEVER_READ_AT, r.id],
+      };
     default:
       return assertNever(sort);
   }
@@ -440,7 +473,7 @@ export function fileCursorSql(query: ListQuery): CursorSql {
 }
 
 /** One row of the hub's merged sites + files UNION, aliased `u`. `kind` breaks ties before `id` because ids are minted per table. */
-export type CatalogCursorRow = { kind: "site" | "file"; id: string; name: string; sort_updated: string; size: number };
+export type CatalogCursorRow = { kind: "site" | "file"; id: string; name: string; sort_updated: string; size: number; last_read_at?: string | null };
 
 function catalogSort(sort: CatalogSort): SortSpec<CatalogCursorRow> {
   switch (sort) {
@@ -452,6 +485,14 @@ function catalogSort(sort: CatalogSort): SortSpec<CatalogCursorRow> {
       return { exprs: ["u.size", "u.kind", "u.id"], dir: "DESC", clause: "where", lead: "number", values: (r) => [String(r.size), r.kind, r.id] };
     case "age":
       return { exprs: ["u.sort_updated", "u.kind", "u.id"], dir: "ASC", clause: "where", lead: "text", values: (r) => [r.sort_updated, r.kind, r.id] };
+    case "last_read":
+      return {
+        exprs: [lastReadExpr("u.last_read_at"), "u.kind", "u.id"],
+        dir: "ASC",
+        clause: "where",
+        lead: "text",
+        values: (r) => [r.last_read_at ?? NEVER_READ_AT, r.kind, r.id],
+      };
     default:
       return assertNever(sort);
   }

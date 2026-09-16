@@ -25,6 +25,7 @@ export type HubQuery = {
   expires?: { kind: 'never' } | { kind: 'before'; at: string };
   updatedBefore?: string;
   minSize?: number;
+  changedSinceRead?: boolean;
 };
 export type HubData = CatalogData & { handle: string | null; origin: string; content_origin: string; policy: RetentionPolicy; words: readonly string[]; query?: HubQuery };
 export type LinkAccess = {

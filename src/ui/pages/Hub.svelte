@@ -37,7 +37,8 @@
   let expiresBefore = $state(untrack(() => data.query?.expires?.kind === 'before' ? data.query.expires.at : ''));
   let updatedBefore = $state(untrack(() => data.query?.updatedBefore || ''));
   let minSize = $state(untrack(() => data.query?.minSize != null ? String(data.query.minSize) : ''));
-  let filtersOpen = $state(untrack(() => !!(data.query?.expires || data.query?.updatedBefore || data.query?.minSize != null)));
+  let changedSince = $state<'any' | 'changed'>(untrack(() => data.query?.changedSinceRead ? 'changed' : 'any'));
+  let filtersOpen = $state(untrack(() => !!(data.query?.expires || data.query?.updatedBefore || data.query?.minSize != null || data.query?.changedSinceRead)));
   let selectedSites = $state<string[]>([]);
   let selectedFiles = $state<string[]>([]);
   let matching = $state(false);
@@ -104,7 +105,7 @@
     target.kind === 'site' ? 'Site' : 'File',
     target.item.write_policy === 'org' ? 'Anyone in the org' : 'Only the creator',
     `Last writer ${target.item.last_written_by || target.item.created_by}${target.item.written_via === 'write_password' ? ' via shared write' : ''}`,
-    `Last read ${target.item.last_read_at ? formatTime(target.item.last_read_at, true) : 'none recorded'}`,
+    `Last read ${target.item.last_read_at ? formatTime(target.item.last_read_at, true) : 'None'}`,
   ].join(' · ') : '');
   const targetPath = $derived(target ? `/account/${target.kind === 'site' ? 'sites' : 'files'}/${encodeURIComponent(target.item.id)}` : '');
   const ttlNote = $derived('You can delete this whenever you want. Expiration is only the automatic stop.' + (!data.policy.allow_unlimited && ttlOptions.length ? ` Longest allowed is ${ttlOptions.at(-1)?.label}.` : ''));
@@ -119,7 +120,7 @@
   const writePhraseOk = $derived(!isTargetCreator || writeDoor === 'off' || !!writePassword.trim() || (writeUnrecovered && writeDoor === 'on'));
   const linkAccessReady = $derived(linkAccessLoaded && !passwordLoading && (shareDirty || writeDirty) && sharePhraseOk && writePhraseOk);
   const linkAccessBusy = $derived(mutationBusy || passwordLoading || !linkAccessLoaded);
-  const moreFiltersActive = $derived([expires === 'never', !!expiresBefore.trim(), !!updatedBefore.trim(), !!minSize.trim()].filter(Boolean).length);
+  const moreFiltersActive = $derived([expires === 'never', !!expiresBefore.trim(), !!updatedBefore.trim(), !!minSize.trim(), changedSince === 'changed'].filter(Boolean).length);
   const filtered = $derived(!!(q.trim() || scope !== 'involved' || kind !== 'all' || sort !== 'updated' || moreFiltersActive));
   const hasSelection = $derived(matching || selectedSites.length + selectedFiles.length > 0);
   const selectionLabel = $derived(matching ? 'Everything matching these filters' : `${selectedSites.length + selectedFiles.length} selected`);
@@ -143,20 +144,24 @@
   const updatedBeforeError = $derived(validTimestamp(updatedBefore) ? '' : dateError);
   const minSizeError = $derived(validSize(minSize) ? '' : 'Enter bytes or a size like 500kb, 1mb, or 2gb.');
   const filtersValid = $derived(!expiresBeforeError && !updatedBeforeError && !minSizeError);
-  async function refresh(more = false) {
-    const sequence = ++requestSequence;
-    controller?.abort();
-    if (!filtersValid) { loading = false; return; }
-    controller = new AbortController(); loading = true;
+  function catalogQuery(more = false): URLSearchParams {
     const query = new URLSearchParams({ q: q.trim(), scope, sort });
     if (kind !== 'all') query.set('kind', kind);
     if (expires === 'never') query.set('expires', 'never');
     else if (expiresBefore.trim()) query.set('expires_before', expiresBefore.trim());
     if (updatedBefore.trim()) query.set('updated_before', updatedBefore.trim());
     if (minSize.trim()) query.set('min_size', minSize.trim());
+    if (changedSince === 'changed') query.set('changed_since_read', '1');
     if (more && lists.cursor) query.set('cursor', lists.cursor);
+    return query;
+  }
+  async function refresh(more = false) {
+    const sequence = ++requestSequence;
+    controller?.abort();
+    if (!filtersValid) { loading = false; return; }
+    controller = new AbortController(); loading = true;
     try {
-      const next = await api<CatalogData>('/account/data?' + query, { signal: controller.signal });
+      const next = await api<CatalogData>('/account/data?' + catalogQuery(more), { signal: controller.signal });
       if (sequence !== requestSequence) return;
       lists = more ? { ...lists, items: [...lists.items, ...next.items], total: next.total, cursor: next.cursor } : next;
       catalogStatus = more ? `Loaded ${lists.items.length} of ${count(lists.total, 'item')}.` : `${count(lists.total, 'item')}${filtered ? ' match' : ''}.`;
@@ -472,7 +477,7 @@
       </div>
       <div class="en-card-body en-toolbar en-catalog-toolbar en-catalog-toolbar--second">
         <SegmentedControl id="kind" bind:value={kind} ariaLabel="Catalog kind" onChange={() => { applyFilters(); }} options={[{ value: 'all', label: 'All' }, { value: 'sites', label: 'Sites' }, { value: 'files', label: 'Files' }]} />
-        <Select id="sort" aria-label="Sort" bind:value={sort} onchange={() => refresh()} options={[{ value: 'updated', label: 'Updated' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }, { value: 'age', label: 'Oldest' }]} />
+        <Select id="sort" aria-label="Sort" bind:value={sort} onchange={() => refresh()} options={[{ value: 'updated', label: 'Updated' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }, { value: 'age', label: 'Oldest' }, { value: 'last_read', label: 'Last read' }]} />
         <button type="button" id="catalog-filters-toggle" class="en-btn en-btn--ghost en-btn--md en-filters-toggle" aria-expanded={filtersOpen} aria-controls="catalog-filters" onclick={() => { filtersOpen = !filtersOpen; }}>More filters{#if moreFiltersActive}<span class="en-filters-count" aria-label="{moreFiltersActive} active">{moreFiltersActive}</span>{/if}<Icon name="chevron" size={16} className={filtersOpen ? 'en-filters-chevron en-filters-chevron--open' : 'en-filters-chevron'} /></button>
       </div>
       <div id="catalog-filters" class="en-card-body en-catalog-filters" hidden={!filtersOpen}>
@@ -480,6 +485,7 @@
         <Field label="Expires before" htmlFor="catalog-expires-before" note="A date, 2026-01-01, or an ISO timestamp." noteId="catalog-expires-before-note" error={expiresBeforeError} errorId="catalog-expires-before-error"><Input id="catalog-expires-before" bind:value={expiresBefore} mono placeholder="2026-01-01" disabled={expires === 'never'} aria-invalid={expiresBeforeError ? 'true' : undefined} aria-describedby={expiresBeforeError ? 'catalog-expires-before-error catalog-expires-before-note' : 'catalog-expires-before-note'} onchange={applyFilters} /></Field>
         <Field label="Last written before" htmlFor="catalog-updated-before" note="A date, 2026-01-01, or an ISO timestamp." noteId="catalog-updated-before-note" error={updatedBeforeError} errorId="catalog-updated-before-error"><Input id="catalog-updated-before" bind:value={updatedBefore} mono placeholder="2026-01-01" aria-invalid={updatedBeforeError ? 'true' : undefined} aria-describedby={updatedBeforeError ? 'catalog-updated-before-error catalog-updated-before-note' : 'catalog-updated-before-note'} onchange={applyFilters} /></Field>
         <Field label="Minimum size" htmlFor="catalog-min-size" note="Bytes, or a size like 500kb, 1mb, or 2gb." noteId="catalog-min-size-note" error={minSizeError} errorId="catalog-min-size-error"><Input id="catalog-min-size" bind:value={minSize} placeholder="1mb" aria-invalid={minSizeError ? 'true' : undefined} aria-describedby={minSizeError ? 'catalog-min-size-error catalog-min-size-note' : 'catalog-min-size-note'} onchange={applyFilters} /></Field>
+        <Field label="Last open" note="Reads lag up to about a day." noteId="catalog-changed-since-read-note"><SegmentedControl id="catalog-changed-since-read" ariaLabel="Changed since last open" options={[{ value: 'any', label: 'Any' }, { value: 'changed', label: 'Changed since last open' }]} bind:value={changedSince} onChange={() => { applyFilters(); }} /></Field>
       </div>
       <p id="catalog-status" class="en-sr-only" role="status">{catalogStatus}</p>
       <div id="catalog" aria-busy={loading}><Catalog items={lists.items} cursor={lists.cursor} busy={loading} filtered={filtered} {kind} writePolicyDefault={data.policy.write_policy} selected={itemSelected} onToggle={toggleItem} onToggleVisible={toggleVisible} onSelectMatching={selectMatching} onMore={openMore} onPassword={editPassword} onDelete={deleteItem} onLoadMore={() => refresh(true)} /></div>

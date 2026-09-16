@@ -32,7 +32,7 @@ PR #68 renamed the constant to `PUBLIC_CACHE_SECONDS = 86400` (`src/config.ts:14
 
 Treat any read signal written by the Worker as a floor, never a count, and pick the design by what the signal is for.
 
-1. A Worker-side stamp can only say "read at least this recently". Every edge cache hit at any TTL above zero bypasses the Worker, so a counter incremented there undercounts and a timestamp there lags. Label it as a floor everywhere it appears: help text, `llms.txt`, hub copy. Write "No recorded read", never "unread" or "never viewed".
+1. A Worker-side stamp can only say "read at least this recently". Every edge cache hit at any TTL above zero bypasses the Worker, so a counter incremented there undercounts and a timestamp there lags. Label it as a floor everywhere it appears: help text, `llms.txt`, hub copy. Never write "unread" or "never viewed". Admin preview empty cells stay "No recorded read". Personal catalog empty cells are "None"; the filter is "Changed since last open" with the note "Reads lag up to about a day." Do not put the recording mechanism in the control.
 
 2. The cache TTL is the one knob that bounds the lag. `PUBLIC_CACHE_SECONDS` is the ceiling on how stale `last_read_at` can be for public content. Its doc comment says so (`src/config.ts:14`). Anyone touching it must know both directions: shortening it further buys accuracy that no consumer of `last_read_before` needs, and lengthening it silently widens the window in which an actively read object looks idle to cleanup, with no test or type error to catch it.
 
@@ -79,10 +79,16 @@ const write = env.DB.prepare(
 if (ctx) ctx.waitUntil(write);
 ```
 
-Copy that respects the floor (`src/ui/pages/Admin.svelte:117`):
+Admin copy that names the floor (`src/ui/components/CleanupReview.svelte`):
 
 ```svelte
 <Timestamp value={row.last_read_at} empty="No recorded read" />
+```
+
+Personal catalog empty cells stay short (`src/ui/components/Catalog.svelte`):
+
+```svelte
+<Timestamp value={item.last_read_at} empty="None" />
 ```
 
 ## Related
