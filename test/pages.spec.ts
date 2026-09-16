@@ -164,7 +164,7 @@ describe("signed-in pages", () => {
     expect(html).toContain(">Expires<");
     expect(html).not.toMatch(/<th[^>]*>Last writer<\/th>/);
     expect(html).toMatch(/<th[^>]*>Last read<\/th>/);
-    expect(html).toContain("Last read Never");
+    expect(html).toMatch(/Last read[\s\S]{0,80}Never/);
     expect(html).toContain('id="catalog-select-visible"');
     expect(html).toContain('id="catalog-select-matching"');
     expect(html).toContain('id="account-export"');

@@ -144,11 +144,7 @@
   const updatedBeforeError = $derived(validTimestamp(updatedBefore) ? '' : dateError);
   const minSizeError = $derived(validSize(minSize) ? '' : 'Enter bytes or a size like 500kb, 1mb, or 2gb.');
   const filtersValid = $derived(!expiresBeforeError && !updatedBeforeError && !minSizeError);
-  async function refresh(more = false) {
-    const sequence = ++requestSequence;
-    controller?.abort();
-    if (!filtersValid) { loading = false; return; }
-    controller = new AbortController(); loading = true;
+  function catalogQuery(more = false): URLSearchParams {
     const query = new URLSearchParams({ q: q.trim(), scope, sort });
     if (kind !== 'all') query.set('kind', kind);
     if (expires === 'never') query.set('expires', 'never');
@@ -157,8 +153,15 @@
     if (minSize.trim()) query.set('min_size', minSize.trim());
     if (changedSince === 'changed') query.set('changed_since_read', '1');
     if (more && lists.cursor) query.set('cursor', lists.cursor);
+    return query;
+  }
+  async function refresh(more = false) {
+    const sequence = ++requestSequence;
+    controller?.abort();
+    if (!filtersValid) { loading = false; return; }
+    controller = new AbortController(); loading = true;
     try {
-      const next = await api<CatalogData>('/account/data?' + query, { signal: controller.signal });
+      const next = await api<CatalogData>('/account/data?' + catalogQuery(more), { signal: controller.signal });
       if (sequence !== requestSequence) return;
       lists = more ? { ...lists, items: [...lists.items, ...next.items], total: next.total, cursor: next.cursor } : next;
       catalogStatus = more ? `Loaded ${lists.items.length} of ${count(lists.total, 'item')}.` : `${count(lists.total, 'item')}${filtered ? ' match' : ''}.`;
