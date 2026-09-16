@@ -127,6 +127,7 @@ Write plain, declarative copy. Lead with the consequence, then explain the mecha
 | This Energon; Want to deploy your own Energon?; anyone in the org; on this host (the place) | Instance as the product unit; host identity; this Energon’s identity; deploy your own instance/host |
 | “Nothing is written until you Publish.” | A success state while files are only staged |
 | “There is no recycle bin. Type the name to confirm.” | A vague “Are you sure?” for irreversible deletion |
+| Last read; None when unset; Changed since last open; Reads lag up to about a day. | Never, none recorded, or No recorded read on personal catalog last-read cells; stuffing the stamp mechanism into the control |
 
 Use no emoji, exclamation marks, invented urgency, or promotional filler in app copy. Buttons name actions: Publish, Mint token, Approve connection, Deny connection, Revoke, Delete, Copy, Open. Busy labels describe current work, such as “Publishing…”. Show errors with enough context to recover; preserve useful input after a failure.
 

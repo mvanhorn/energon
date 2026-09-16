@@ -69,7 +69,10 @@ describe("signed-in pages", () => {
     expect(html).toContain("Never expires");
     expect(html).not.toContain('id="catalog-last-read"');
     expect(html).not.toContain("Last read before");
-    expect(html).not.toContain("Reads lag up to about a day.");
+    expect(html).toContain("Reads lag up to about a day.");
+    expect(html).not.toContain("none recorded");
+    expect(html).not.toContain("No recorded read");
+    expect(html).not.toContain("Updated after the last recorded read");
     expect(html).toContain(">Oldest<");
     expect(html).toContain(">Last read<");
     expect(html).toContain("Changed since last open");
@@ -164,7 +167,7 @@ describe("signed-in pages", () => {
     expect(html).toContain(">Expires<");
     expect(html).not.toMatch(/<th[^>]*>Last writer<\/th>/);
     expect(html).toMatch(/<th[^>]*>Last read<\/th>/);
-    expect(html).toMatch(/Last read[\s\S]{0,80}Never/);
+    expect(html).toMatch(/Last read[\s\S]{0,80}None/);
     expect(html).toContain('id="catalog-select-visible"');
     expect(html).toContain('id="catalog-select-matching"');
     expect(html).toContain('id="account-export"');

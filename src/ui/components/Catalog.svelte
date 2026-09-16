@@ -36,10 +36,10 @@
   </span>
 {/snippet}
 {#snippet updated(item: CatalogItem)}<Timestamp value={item.updated_at || item.created_at} />{/snippet}
-{#snippet lastRead(item: CatalogItem)}<Timestamp value={item.last_read_at} empty="Never" />{/snippet}
+{#snippet lastRead(item: CatalogItem)}<Timestamp value={item.last_read_at} empty="None" />{/snippet}
 {#snippet expires(item: CatalogItem)}{#if item.expires_at}<Timestamp value={item.expires_at} />{/if}{/snippet}
 {#snippet itemSize(item: CatalogItem)}{size(item)}{/snippet}
-{#snippet meta(item: CatalogItem)}<Timestamp value={item.updated_at || item.created_at} /> · {size(item)}{#if item.expires_at}{' · Expires '}<Timestamp value={item.expires_at} />{/if}{' · Last read '}<Timestamp value={item.last_read_at} empty="Never" />{/snippet}
+{#snippet meta(item: CatalogItem)}<Timestamp value={item.updated_at || item.created_at} /> · {size(item)}{#if item.expires_at}{' · Expires '}<Timestamp value={item.expires_at} />{/if}{' · Last read '}<Timestamp value={item.last_read_at} empty="None" />{/snippet}
 {#snippet actions(item: CatalogItem)}
   <div class="en-row-actions">
     <div class="en-scan-pair">
