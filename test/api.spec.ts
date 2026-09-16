@@ -2075,6 +2075,7 @@ describe("Energon", () => {
         [{ target: { files: "abc123" }, action: "delete" }, "bad_target"],
         [{ target: { files: [""] }, action: "delete" }, "bad_target"],
         [{ target: { folders: ["x"] }, action: "delete" }, "bad_target"],
+        [{ target: { changed_since_read: "1" }, action: "delete" }, "bad_target"],
         [{ target: { kind: "folders" }, action: "delete" }, "bad_target"],
         [{ target: { min_size: "lots" }, action: "delete" }, "bad_query"],
         [{ target: { expires: "soon", updated_before: 12 }, action: "delete" }, "bad_query"],
@@ -2212,6 +2213,62 @@ describe("Energon", () => {
       expect(listed.body.files.find((f: { id: string }) => f.id === id).last_read_at).toBe(first);
       const hub = await json("/account/data?q=read.txt", { headers: access(email) });
       expect(hub.body.items.find((f: { id: string }) => f.id === id).last_read_at).toBe(first);
+    });
+
+    it("sorts last_read never-read first and filters changed_since_read", async () => {
+      const token = await mint("reader-sort", email);
+      const names = (items: { filename?: string }[]) => items.map((item) => item.filename ?? "");
+      const post = async (filename: string) => {
+        const created = await json("/v1/files", {
+          method: "POST",
+          headers: auth(token, { "X-Filename": filename, "content-type": "text/plain" }),
+          body: filename,
+        });
+        expect(created.status).toBe(201);
+        return String(created.body.id);
+      };
+      const neverId = await post("sort-never.txt");
+      const staleId = await post("sort-stale.txt");
+      const freshId = await post("sort-fresh.txt");
+      await env.DB.prepare(`UPDATE loose_files SET updated_at = ?, last_read_at = NULL WHERE id = ?`)
+        .bind("2026-03-01T00:00:00.000Z", neverId)
+        .run();
+      await env.DB.prepare(`UPDATE loose_files SET updated_at = ?, last_read_at = ? WHERE id = ?`)
+        .bind("2026-02-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", staleId)
+        .run();
+      await env.DB.prepare(`UPDATE loose_files SET updated_at = ?, last_read_at = ? WHERE id = ?`)
+        .bind("2026-01-01T00:00:00.000Z", "2026-03-01T00:00:00.000Z", freshId)
+        .run();
+
+      const ordered = await json("/v1/files?q=sort-&sort=last_read", { headers: auth(token) });
+      expect(ordered.status).toBe(200);
+      expect(names(ordered.body.files)).toEqual(["sort-never.txt", "sort-stale.txt", "sort-fresh.txt"]);
+      expect(ordered.body.files[0].last_read_at).toBeNull();
+
+      const page = await json("/v1/files?q=sort-&sort=last_read&limit=1", { headers: auth(token) });
+      expect(names(page.body.files)).toEqual(["sort-never.txt"]);
+      expect(page.body.next_cursor).toBeTruthy();
+      const rest = await json(
+        `/v1/files?q=sort-&sort=last_read&limit=2&cursor=${encodeURIComponent(page.body.next_cursor)}`,
+        { headers: auth(token) },
+      );
+      expect(names(rest.body.files)).toEqual(["sort-stale.txt", "sort-fresh.txt"]);
+      expect(rest.body.next_cursor).toBeNull();
+
+      const changed = await json("/v1/files?q=sort-&changed_since_read=1", { headers: auth(token) });
+      expect(names(changed.body.files).sort()).toEqual(["sort-never.txt", "sort-stale.txt"]);
+      expect(changed.body.total).toBe(2);
+      const ignored = await json("/v1/files?q=sort-&changed_since_read=yes", { headers: auth(token) });
+      expect(ignored.body.total).toBe(3);
+
+      const hub = await json("/account/data?q=sort-&sort=last_read&changed_since_read=1", { headers: access(email) });
+      expect(hub.status).toBe(200);
+      expect(hub.body.items.map((i: { filename?: string }) => i.filename)).toEqual(["sort-never.txt", "sort-stale.txt"]);
+      const hubStripped = await json(
+        "/account/data?q=sort-&last_read_before=2026-02-01T00:00:00.000Z&changed_since_read=1",
+        { headers: access(email) },
+      );
+      expect(hubStripped.body.total).toBe(2);
     });
 
     it("stamps an owned zip the same way a site zip does", async () => {

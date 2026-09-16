@@ -42,7 +42,7 @@ describe("signed-in pages", () => {
     expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
     const html = await res.text();
     for (const text of ["Publish a document, prototype, or file.", "Choose files", "Choose folder", "Nothing published yet", "Drop to stage"]) expect(html).toContain(text);
-    for (const id of ["app", "pick-files", "pick-folder", "filepick", "folderpick", "q", "scope", "kind", "sort", "catalog-filters-toggle", "catalog-filters", "catalog-expires", "catalog-expires-before", "catalog-updated-before", "catalog-min-size", "catalog-cleanup", "catalog-cleanup-action", "catalog-cleanup-run", "catalog-cleanup-ttl", "catalog-cleanup-dlg", "catalog", "drop-overlay", "pw-dlg", "write-dlg", "ttl-dlg"]) expect(html).toContain(`id="${id}"`);
+    for (const id of ["app", "pick-files", "pick-folder", "filepick", "folderpick", "q", "scope", "kind", "sort", "catalog-filters-toggle", "catalog-filters", "catalog-expires", "catalog-expires-before", "catalog-updated-before", "catalog-min-size", "catalog-changed-since-read", "catalog-cleanup", "catalog-cleanup-action", "catalog-cleanup-run", "catalog-cleanup-ttl", "catalog-cleanup-dlg", "catalog", "drop-overlay", "pw-dlg", "write-dlg", "ttl-dlg"]) expect(html).toContain(`id="${id}"`);
     expect(html).not.toContain('id="account-export"');
     expect(html).not.toContain("scan-examples");
     expect(html).not.toContain("Catalog marks");
@@ -72,8 +72,13 @@ describe("signed-in pages", () => {
     expect(html).toContain(">7d<");
     expect(html).not.toContain('id="catalog-last-read"');
     expect(html).not.toContain("Last read before");
-    expect(html).not.toContain("Reads lag up to about a day.");
+    expect(html).toContain("Reads lag up to about a day.");
+    expect(html).not.toContain("none recorded");
+    expect(html).not.toContain("No recorded read");
+    expect(html).not.toContain("Updated after the last recorded read");
     expect(html).toContain(">Oldest<");
+    expect(html).toContain(">Last read<");
+    expect(html).toContain("Changed since last open");
     expect(html).toContain('aria-label="Cleanup action"');
     expect(html).toContain("Set expiry is the safe default");
     expect(html).toContain("Expire soon");
@@ -164,7 +169,8 @@ describe("signed-in pages", () => {
     expect(html).toContain("Load more");
     expect(html).toContain(">Expires<");
     expect(html).not.toMatch(/<th[^>]*>Last writer<\/th>/);
-    expect(html).not.toMatch(/<th[^>]*>Last read<\/th>/);
+    expect(html).toMatch(/<th[^>]*>Last read<\/th>/);
+    expect(html).toMatch(/Last read[\s\S]{0,80}None/);
     expect(html).toContain('id="catalog-select-visible"');
     expect(html).toContain('id="catalog-select-matching"');
     expect(html).toContain('id="account-export"');
@@ -227,6 +233,16 @@ describe("signed-in pages", () => {
     const seven = await (await req("/?expires_within=7d", { headers: access(email) })).text();
     expect(bootstrap(seven).data.query).toMatchObject({ expires: { kind: "within", window: "7d" } });
     expect(seven).toContain('aria-pressed="true" class="on">7d</button>');
+  });
+
+  it("hydrates last-read sort and changed-since-read from the hub URL", async () => {
+    const html = await (await req("/?sort=last_read&changed_since_read=1")).text();
+    const boot = bootstrap(html);
+    expect(boot.data.query).toMatchObject({ sort: "last_read", changedSinceRead: true });
+    expect(html).toContain('<option value="last_read" selected="">Last read</option>');
+    expect(html).toContain('aria-pressed="true" class="on">Changed since last open</button>');
+    expect(html).not.toContain("Last read before");
+    expect(html).not.toContain('id="catalog-last-read"');
   });
 
   it("catalog password marks appear only when a hash is set", async () => {

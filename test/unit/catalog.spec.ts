@@ -16,6 +16,9 @@ import {
   parseListQuery,
   parseSort,
   catalogSearchParams,
+  catalogCursorSql,
+  nextCatalogCursor,
+  NEVER_READ_AT,
   siteCursorSql,
   takePage,
 } from "../../src/catalog";
@@ -50,13 +53,22 @@ describe("parseListQuery", () => {
     expect(q("?created_by=Ada@Esperlabs.app").createdBy).toBe("ada@esperlabs.app");
   });
 
-  it("parses the size and age sorts and falls back to updated", () => {
+  it("parses the size, age, and last_read sorts and falls back to updated", () => {
     expect(q("?sort=size").sort).toBe("size");
     expect(q("?sort=age").sort).toBe("age");
+    expect(q("?sort=last_read").sort).toBe("last_read");
     expect(q("?sort=biggest").sort).toBe("updated");
     expect(q("").sort).toBe("updated");
     expect(parseSort(null)).toBe("updated");
     expect(parseSort("SIZE")).toBe("updated");
+    expect(parseSort("LAST_READ")).toBe("updated");
+  });
+
+  it("parses changed_since_read=1 and ignores other values", () => {
+    expect(q("?changed_since_read=1").changedSinceRead).toBe(true);
+    expect(q("?changed_since_read=yes").changedSinceRead).toBeUndefined();
+    expect(q("?changed_since_read=0").changedSinceRead).toBeUndefined();
+    expect(q("").changedSinceRead).toBeUndefined();
   });
 
   it("parses expires=never and expires_before as an ISO instant", () => {
@@ -116,36 +128,43 @@ describe("parseListQuery", () => {
     const params = catalogSearchParams({
       q: "notes",
       scope: "created",
-      sort: "size",
+      sort: "last_read",
       expires: { kind: "never" },
       updatedBefore: "2026-03-01T00:00:00.000Z",
       lastReadBefore: "2026-01-01T00:00:00.000Z",
+      changedSinceRead: true,
       minSize: "1mb",
     });
     expect(params.get("q")).toBe("notes");
     expect(params.get("scope")).toBe("created");
-    expect(params.get("sort")).toBe("size");
+    expect(params.get("sort")).toBe("last_read");
     expect(params.get("expires")).toBe("never");
     expect(params.get("expires_before")).toBeNull();
     expect(params.get("updated_before")).toBe("2026-03-01T00:00:00.000Z");
     expect(params.get("last_read_before")).toBe("2026-01-01T00:00:00.000Z");
+    expect(params.get("changed_since_read")).toBe("1");
     expect(params.get("min_size")).toBe("1mb");
     const parsed = parseListQuery(new URL(`https://energon.example.com/?${params}`));
     expect(parsed.q).toBe("notes");
     expect(parsed.scope).toBe("created");
-    expect(parsed.sort).toBe("size");
+    expect(parsed.sort).toBe("last_read");
     expect(parsed.expires).toEqual({ kind: "never" });
     expect(parsed.updatedBefore).toBe("2026-03-01T00:00:00.000Z");
     expect(parsed.lastReadBefore).toBe("2026-01-01T00:00:00.000Z");
+    expect(parsed.changedSinceRead).toBe(true);
     expect(parsed.minSize).toBe(1024 * 1024);
   });
 
-  it("hub list query drops last_read_before", () => {
-    const url = new URL("https://energon.example.com/?expires=never&last_read_before=2026-01-01T00:00:00.000Z");
+  it("hub list query drops last_read_before and keeps changed_since_read", () => {
+    const url = new URL(
+      "https://energon.example.com/?expires=never&last_read_before=2026-01-01T00:00:00.000Z&changed_since_read=1",
+    );
     expect(parseListQuery(url).lastReadBefore).toBe("2026-01-01T00:00:00.000Z");
+    expect(parseListQuery(url).changedSinceRead).toBe(true);
     const hub = parseHubListQuery(url);
     expect(hub.expires).toEqual({ kind: "never" });
     expect(hub.lastReadBefore).toBeUndefined();
+    expect(hub.changedSinceRead).toBe(true);
   });
 
   it("sends expires_before only when expiry is a cutoff, not never", () => {
@@ -262,6 +281,18 @@ describe("criteriaSql", () => {
     const week = criteriaSql("files", q("?expires_within=7d"), ME, undefined, { now });
     expect(week.whereBinds).toEqual([ME, ME, "2026-09-23T00:00:00.000Z"]);
   });
+
+  it("filters changed_since_read with COALESCE never-read and does not bind a timestamp", () => {
+    const files = criteriaSql("files", q("?changed_since_read=1"), ME);
+    expect(files.where).toBe(
+      `(created_by = ? OR COALESCE(last_written_by, created_by) = ?) AND COALESCE(updated_at, created_at) > COALESCE(last_read_at, '${NEVER_READ_AT}')`,
+    );
+    expect(files.whereBinds).toEqual([ME, ME]);
+    const sites = criteriaSql("sites", q("?changed_since_read=1"), ME);
+    expect(sites.where).toBe(
+      `(s.created_by = ? OR COALESCE(s.last_written_by, s.created_by) = ?) AND s.updated_at > COALESCE(s.last_read_at, '${NEVER_READ_AT}')`,
+    );
+  });
 });
 
 describe("list helpers", () => {
@@ -299,6 +330,7 @@ describe("list helpers", () => {
     expect(decodeCursor(nextFileCursor("updated", row))).toEqual(["updated", "t0", "Ab12Cd"]);
     expect(decodeCursor(nextFileCursor("size", row))).toEqual(["size", "3", "Ab12Cd"]);
     expect(decodeCursor(nextFileCursor("age", row))).toEqual(["age", "t0", "Ab12Cd"]);
+    expect(decodeCursor(nextFileCursor("last_read", row))).toEqual(["last_read", NEVER_READ_AT, "Ab12Cd"]);
   });
 
   it("orders size largest first and pages with a numeric keyset", () => {
@@ -318,6 +350,32 @@ describe("list helpers", () => {
     const next = fileCursorSql({ ...q("?sort=age"), cursor });
     expect(next.sql).toBe("(COALESCE(updated_at, created_at) > ? OR (COALESCE(updated_at, created_at) = ? AND id > ?))");
     expect(next.binds).toEqual(["t1", "t1", "Ab12Cd"]);
+  });
+
+  it("orders last_read never-read first and pages with the epoch sentinel", () => {
+    const first = fileCursorSql(q("?sort=last_read"));
+    expect(first.order).toBe(`COALESCE(last_read_at, '${NEVER_READ_AT}') ASC, id ASC`);
+    const unread = { id: "Ab12Cd", filename: "a", updated_at: "t1", created_at: "t0", size: 1, last_read_at: null };
+    expect(decodeCursor(nextFileCursor("last_read", unread))).toEqual(["last_read", NEVER_READ_AT, "Ab12Cd"]);
+    const nextUnread = fileCursorSql({ ...q("?sort=last_read"), cursor: nextFileCursor("last_read", unread) });
+    expect(nextUnread.sql).toBe(
+      `(COALESCE(last_read_at, '${NEVER_READ_AT}') > ? OR (COALESCE(last_read_at, '${NEVER_READ_AT}') = ? AND id > ?))`,
+    );
+    expect(nextUnread.binds).toEqual([NEVER_READ_AT, NEVER_READ_AT, "Ab12Cd"]);
+    const stamped = nextFileCursor("last_read", { ...unread, last_read_at: "2026-02-01T00:00:00.000Z" });
+    expect(decodeCursor(stamped)).toEqual(["last_read", "2026-02-01T00:00:00.000Z", "Ab12Cd"]);
+    expect(siteCursorSql(q("?sort=last_read")).order).toBe(`COALESCE(s.last_read_at, '${NEVER_READ_AT}') ASC, s.id ASC`);
+    const hub = catalogCursorSql(q("?sort=last_read"));
+    expect(hub.order).toBe(`COALESCE(u.last_read_at, '${NEVER_READ_AT}') ASC, u.kind ASC, u.id ASC`);
+    const hubCursor = nextCatalogCursor("last_read", {
+      kind: "file",
+      id: "Ab12Cd",
+      name: "a",
+      sort_updated: "t1",
+      size: 1,
+      last_read_at: null,
+    });
+    expect(decodeCursor(hubCursor)).toEqual(["last_read", NEVER_READ_AT, "file", "Ab12Cd"]);
   });
 
   it("keeps the site size keyset in HAVING and ties on id so duplicate slugs do not collapse", () => {
